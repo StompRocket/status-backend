@@ -26,10 +26,13 @@ function check() {
     fetch(property.data.url, {
       method: 'get'
     }).then(res => {
+      const endTime = moment()
+      const endTimeUnix = endTime.unix()
+      //console.log(endTimeUnix)
       if (res.ok) {
-        const endTime = moment()
+
         result = {
-          timeStamp: endTime.tz("America/Los_Angeles").toISOString(),
+          timeStamp: endTimeUnix,
           status: res.status,
           ok: res.ok,
           responseTime: endTime.diff(startTime, 'milliseconds')
@@ -39,13 +42,14 @@ function check() {
       } else {
         log.info(`${property.id} status ${res.status}`)
         result = {
-          timeStamp: moment().tz("America/Los_Angeles").toISOString(),
+          timeStamp: endTimeUnix,
           status: res.status,
           ok: res.ok
         }
       }
-      db.collection('properties').doc(property.id).collection('logs').doc(result.timeStamp).set(result).then(i => {
-        log.info('written property to firebase', i)
+      //console.log(property.id, result.timeStamp, result)
+      db.collection('properties').doc(property.id).collection('logs').add(result).then(i => {
+        log.info('written property to firebase', i.error)
       })
     })
   })

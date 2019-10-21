@@ -82,7 +82,8 @@ app.get('/property/:id', function (req, res, next) {
                     allLogs.push(log)
                   })
                   allLogs = allLogs.sort((a,b) => {
-                    return moment(a.timeStamp).unix() - moment(b.timeStamp).unix()
+                    console.log(a.timeStamp, b.timeStamp)
+                    return moment(b.timeStamp).unix() - moment(a.timeStamp).unix()
                   })
                   const lastLog = allLogs[0]
                   response.status = lastLog.status
