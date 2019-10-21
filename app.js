@@ -72,6 +72,8 @@ app.get('/property/:id', function (req, res, next) {
                   let allLogs = []
                   let upCounter = 0
                   let downCounter = 0
+                  let responseTimeTotal = 0
+                  let chartData = []
                   logs.forEach(logSnap => {
                     const log = logSnap.data()
                     if (log.ok) {
@@ -79,18 +81,27 @@ app.get('/property/:id', function (req, res, next) {
                     } else {
                       downCounter++
                     }
+                    responseTimeTotal += log.responseTime
                     allLogs.push(log)
                   })
-                  allLogs = allLogs.sort((a,b) => {
-                    console.log(a.timeStamp, b.timeStamp)
-                    return moment(b.timeStamp).unix() - moment(a.timeStamp).unix()
+                  allLogs = allLogs.sort((a, b) => {
+                    //console.log(a.timeStamp, b.timeStamp)
+                    return a.timeStamp - b.timeStamp
                   })
-                  const lastLog = allLogs[0]
+                  allLogs.forEach(i => {
+                    chartData.push({
+                      x: i.timeStamp,
+                      y: i.responseTime
+                    })
+                  })
+                  const lastLog = allLogs[allLogs.length - 1]
                   response.status = lastLog.status
+                  response.chartData = chartData
                   response.ok = lastLog.ok
                   response.lastPing = lastLog.timeStamp
                   response.lastResponseTime = lastLog.responseTime
-                  response.upTime = Math.round(upCounter/(upCounter + downCounter) * 100)
+                  response.averageResponseTime = Math.round(responseTimeTotal / allLogs.length)
+                  response.upTime = Math.round(upCounter / (upCounter + downCounter) * 100)
                   res.status(200)
                   res.send(response)
                   res.end()
