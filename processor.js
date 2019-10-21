@@ -29,7 +29,7 @@ function check() {
       if (res.ok) {
         const endTime = moment()
         result = {
-          timeStamp: endTime.tz("America/Los_Angeles").toString(),
+          timeStamp: endTime.tz("America/Los_Angeles").toISOString(),
           status: res.status,
           ok: res.ok,
           responseTime: endTime.diff(startTime, 'milliseconds')
@@ -39,13 +39,13 @@ function check() {
       } else {
         log.info(`${property.id} status ${res.status}`)
         result = {
-          timeStamp: moment().tz("America/Los_Angeles").toString(),
+          timeStamp: moment().tz("America/Los_Angeles").toISOString(),
           status: res.status,
           ok: res.ok
         }
       }
       db.collection('properties').doc(property.id).collection('logs').doc(result.timeStamp).set(result).then(i => {
-        log.info('written property to firebase')
+        log.info('written property to firebase', i)
       })
     })
   })
