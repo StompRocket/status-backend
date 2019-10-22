@@ -32,10 +32,13 @@ db.collection('secrets').doc('apiKey').set({
     }
   })
 })
-
+const bodyParser = require('body-parser')
+app.use(bodyParser.json());       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+  extended: true
+}));
 app.use(logger('dev'));
-app.use(express.json());
-app.use(express.urlencoded({extended: false}));
+
 app.use(cookieParser());
 app.use(cors())
 app.get('/', function (req, res, next) {
@@ -53,11 +56,11 @@ app.get('/property/:id', function (req, res, next) {
       admin.auth().verifyIdToken(userToken)
       .then(function (decodedToken) {
         let uid = decodedToken.uid;
-        console.log(uid)
+
         db.collection('properties').doc(propertyId).get().then(snap => {
           if (snap.exists) {
             const property = snap.data()
-            console.log(property)
+
 
             db.collection('properties').doc(propertyId).collection('users').get().then(users => {
               let usersArray = []
@@ -119,6 +122,119 @@ app.get('/property/:id', function (req, res, next) {
           } else {
             res.status(404)
             res.send({error: 'property does not exist'})
+            res.end()
+          }
+        })
+
+      }).catch(function (error) {
+        log.info('user token bad')
+        res.status('400')
+        res.send({error: 'user token invalid'})
+        res.end()
+        // Handle error
+      });
+    } else {
+      log.info('api key bad')
+      res.status('400')
+      res.send({error: 'api key invalid'})
+      res.end()
+    }
+  } else {
+    log.info('invalid request')
+    res.status(400)
+    res.send({error: 'must include all data'})
+    res.end()
+  }
+
+});
+app.post('/property', function (req, res, next) {
+  const key = req.headers.authorization
+  const userToken = req.headers.user
+
+  log.info(key, userToken)
+  if (key, userToken, req.body) {
+    if (key == apiKey) {
+      log.info('api key good')
+      admin.auth().verifyIdToken(userToken)
+      .then(function (decodedToken) {
+        let uid = decodedToken.uid;
+
+        db.collection('secrets').doc('powerusers').get().then(i => {
+          if (i.data().admin.indexOf(uid) > -1) {
+            const body = req.body
+            console.log(body.users)
+            const users = body.users.split(',')
+            let uids = []
+            let newAccounts = []
+            let newAccountPassword = 'welcome'
+            log.info('handling users')
+            users.forEach(async user => {
+              let snap = await db.collection('users').where('email', '==', user).get()
+              if (snap.empty) {
+                log.info('user does not exist', user)
+                let userRecord = await admin.auth().createUser({
+                  email: user,
+                  emailVerified: false,
+                  disabled: false,
+                  password: newAccountPassword
+                })
+                if (userRecord.uid) {
+                  log.info('createdUser', userRecord.uid)
+                  uids.push(userRecord.uid)
+                  await db.collection('users').doc(userRecord.uid).set({
+                    email: user,
+                    properties: []
+                  })
+                  newAccounts.push(user)
+                } else {
+                  log.error('user Creation error', userRecord)
+                }
+
+
+              }
+              snap.forEach((i) => {
+                if (i.id) {
+                  console.log('user exists', user)
+                  uids.push(i.id)
+                }
+
+              })
+              console.log(uids)
+              if (uids.length === users.length) {
+                log.info('creating property')
+
+                db.collection('properties').add({
+                  name: body.name,
+                  url: body.url
+                }).then( ref => {
+                  let id = ref.id
+                  let completed = []
+                  uids.forEach(async uid => {
+                    let snap = await db.collection('users').doc(uid).get()
+                    let currentProps = snap.data().properties
+                    currentProps.push(id)
+                    await db.collection('properties').doc(id).collection('users').doc(uid).set({email: true})
+                    await db.collection('users').doc(uid).update({properties: currentProps})
+                    completed.push(uid)
+                    if (completed.length === uids.length) {
+                      log.info('finished', {sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
+                      res.status(200)
+                      res.send({sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
+                      res.end()
+                    }
+                  })
+
+                })
+              }
+
+
+            })
+
+
+          } else {
+            log.info('user not authorized to create properties')
+            res.status('400')
+            res.send({error: 'user not authorized to create properties'})
             res.end()
           }
         })
