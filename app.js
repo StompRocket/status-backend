@@ -84,8 +84,11 @@ app.get('/property/:id', function (req, res, next) {
                     } else {
                       downCounter++
                     }
-                    responseTimeTotal += log.responseTime
-                    allLogs.push(log)
+                    if (log.responseTime) {
+                      responseTimeTotal += log.responseTime
+                      allLogs.push(log)
+                    }
+
                   })
                   allLogs = allLogs.sort((a, b) => {
                     //console.log(a.timeStamp, b.timeStamp)
@@ -206,7 +209,7 @@ app.post('/property', function (req, res, next) {
                 db.collection('properties').add({
                   name: body.name,
                   url: body.url
-                }).then( ref => {
+                }).then(ref => {
                   let id = ref.id
                   let completed = []
                   uids.forEach(async uid => {
@@ -217,7 +220,9 @@ app.post('/property', function (req, res, next) {
                     await db.collection('users').doc(uid).update({properties: currentProps})
                     completed.push(uid)
                     if (completed.length === uids.length) {
-                      log.info('finished', {sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
+                      log.info('finished', {
+                        sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword
+                      })
                       res.status(200)
                       res.send({sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
                       res.end()
