@@ -1,4 +1,6 @@
 const cron = require('node-cron');
+const mongo = require('mongodb').MongoClient
+const url = 'mongodb://localhost:27017'
 const admin = require("firebase-admin");
 const secrets = require("./private/keys.json")
 const moment = require('moment-timezone')
@@ -48,8 +50,27 @@ function check() {
         }
       }
       //console.log(property.id, result.timeStamp, result)
+      /*
       db.collection('properties').doc(property.id).collection('logs').add(result).then(i => {
         log.info('written property to firebase', i.error)
+      })*/
+      mongo.connect(url, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      }, (err, client) => {
+        if (err) {
+          console.error(err)
+          return
+        }
+        const db = client.db('status-db')
+        const collection = db.collection('properties')
+
+        userCollection.find().toArray((err, items) => {
+          console.log(items)
+        })
+        userCollection.find({name: 'Togo'}).toArray((err, items) => {
+          console.log(items)
+        })
       })
     })
   })
