@@ -14,68 +14,71 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://stomprocket-status.firebaseio.com"
 });
-const db = admin.firestore()
-log.info(`Initialized Stomp Rocket Status Processor ${moment().tz("America/Los_Angeles").format('dddd, MMMM Do YYYY, h:mm:ss a')}`);
-let properties = []
 
+log.info(`Initialized Stomp Rocket Status Processor ${moment().tz("America/Los_Angeles").format('dddd, MMMM Do YYYY, h:mm:ss a')}`);
 
 function check() {
   log.info('starting a check')
-  properties.forEach(property => {
-    log.info('checking', property.data.url, property.data.name, property.id)
-    const startTime = moment()
-    let result = {}
-    fetch(property.data.url, {
-      method: 'get'
-    }).then(res => {
-      const endTime = moment()
-      const endTimeUnix = endTime.unix()
-      //console.log(endTimeUnix)
-      if (res.ok) {
-
-        result = {
-          timeStamp: endTimeUnix,
-          status: res.status,
-          ok: res.ok,
-          responseTime: endTime.diff(startTime, 'milliseconds')
-        }
-        log.info(`${property.id} status good ${res.status} response time: ${result.responseTime}`)
-
-      } else {
-        log.info(`${property.id} status ${res.status}`)
-        result = {
-          timeStamp: endTimeUnix,
-          status: res.status,
-          ok: res.ok
-        }
-      }
-      //console.log(property.id, result.timeStamp, result)
-      /*
-      db.collection('properties').doc(property.id).collection('logs').add(result).then(i => {
-        log.info('written property to firebase', i.error)
-      })*/
-      mongo.connect(url, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-      }, (err, client) => {
-        if (err) {
-          console.error(err)
-          return
-        }
-        const db = client.db('status-db')
-        const collection = db.collection('properties')
-
-        userCollection.find().toArray((err, items) => {
-          console.log(items)
+  mongo.connect(url, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  }, (err, client) => {
+    if (err) {
+      console.error(err)
+      return
+    }
+    const db = client.db('status-db')
+    db.collection('properties').find({}, {_id: 1, name: 1, url: 1}).toArray((err, properties) => {
+      properties.forEach(async property => {
+        log.info('checking', property.url, property.name, property._id)
+        const startTime = moment()
+        let result = {}
+        const res = await fetch(property.url, {
+          method: 'get'
         })
-        userCollection.find({name: 'Togo'}).toArray((err, items) => {
-          console.log(items)
+        const endTime = moment()
+        const endTimeUnix = endTime.unix()
+        //console.log(endTimeUnix)
+        if (res.ok) {
+
+          result = {
+            timeStamp: endTimeUnix,
+            status: res.status,
+            ok: res.ok,
+            responseTime: endTime.diff(startTime, 'milliseconds')
+          }
+          log.info(`${property._id} status good ${res.status} response time: ${result.responseTime}`)
+
+        } else {
+          log.info(`${property._id} status ${res.status}`)
+          result = {
+            timeStamp: endTimeUnix,
+            status: res.status,
+            ok: res.ok
+          }
+        }
+        //console.log(property.id, result.timeStamp, result)
+        /*
+        db.collection('properties').doc(property.id).collection('logs').add(result).then(i => {
+          log.info('written property to firebase', i.error)
+        })*/
+
+
+        await db.collection('properties').updateOne({_id: property._id}, {
+          $push: {logArray: result}
         })
+        log.info(`updated: ${property._id}`)
+
+
       })
+      log.info(`closing client`)
+      client.close()
     })
   })
+
 }
 
+/*
 db.collection('properties').onSnapshot(snapshot => {
   properties = []
   snapshot.forEach(snap => {
@@ -85,7 +88,9 @@ db.collection('properties').onSnapshot(snapshot => {
   check()
 })
 
+ */
 
+check()
 cron.schedule('*/5 * * * *', () => {
   log.info('running checks every 5 minutes', moment().tz("America/Los_Angeles").format('h:mm:s a'));
   check()

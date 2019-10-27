@@ -12,6 +12,8 @@ let log = bunyan.createLogger({name: "stomprocket-status-server"});
 const hat = require('hat');
 const cors = require('cors')
 let apiKey = hat();
+const mongo = require('mongodb').MongoClient
+const url = 'mongodb://localhost:27017'
 admin.initializeApp({
   credential: admin.credential.cert(secrets.firebase),
   databaseURL: "https://stomprocket-status.firebaseio.com"
