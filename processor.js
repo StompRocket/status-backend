@@ -29,6 +29,7 @@ function check() {
     }
     const db = client.db('status-db')
     db.collection('properties').find({}, {_id: 1, name: 1, url: 1}).toArray((err, properties) => {
+      client.close()
       properties.forEach(async property => {
         log.info('checking', property.url, property.name, property._id)
         const startTime = moment()
@@ -64,15 +65,30 @@ function check() {
         })*/
 
 
-        await db.collection('properties').updateOne({_id: property._id}, {
-          $push: {logArray: result}
+        mongo.connect(url, {
+          useNewUrlParser: true,
+          useUnifiedTopology: true
+        }, async (err, client) => {
+          if (err) {
+            console.error(err)
+            return
+          }
+          const db = client.db('status-db')
+          log.info(`updating: ${property._id}`)
+          await db.collection('properties').updateOne({_id: property._id}, {
+            $push: {logArray: result}
+          }).catch(err => {
+            console.log(err)
+          })
+          log.info(`updated: ${property._id}`)
+          client.close()
         })
-        log.info(`updated: ${property._id}`)
+
 
 
       })
-      log.info(`closing client`)
-      client.close()
+
+
     })
   })
 

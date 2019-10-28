@@ -18,23 +18,16 @@ admin.initializeApp({
   credential: admin.credential.cert(secrets.firebase),
   databaseURL: "https://stomprocket-status.firebaseio.com"
 });
-const db = admin.firestore()
 
-log.info(`Initialized Stomp Rocket status backend server with api key ${apiKey}`)
-db.collection('secrets').doc('apiKey').set({
-  key: apiKey,
-  timeStamp: Date.now()
-}).then(i => {
-  db.collection('secrets').doc('apiKey').onSnapshot(snap => {
-    const data = snap.data()
+async function asyncForEach(array, callback) {
+  for (let index = 0; index < array.length; index++) {
+    await callback(array[index], index, array);
+  }
+}
 
-    if (apiKey != data.key) {
-      apiKey = data.key
-      log.info(`API KEY UPDATED: ${apiKey}`)
-    }
-  })
-})
-const bodyParser = require('body-parser')
+log.info(`Initialized Stomp Rocket status backend server with api key ${apiKey}`);
+
+const bodyParser = require('body-parser');
 app.use(bodyParser.json());       // to support JSON-encoded bodies
 app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
   extended: true
@@ -47,225 +40,231 @@ app.get('/', function (req, res, next) {
 
   res.send('respond with a resource');
 });
-app.get('/property/:id', function (req, res, next) {
-  const key = req.headers.authorization
+
+app.get('/properties/', function (req, res, next) {
   const userToken = req.headers.user
-  const propertyId = req.params.id
-  log.info(key, userToken, propertyId)
-  if (key, userToken, propertyId) {
-    if (key == apiKey) {
-      log.info('api key good')
-      admin.auth().verifyIdToken(userToken)
-      .then(function (decodedToken) {
-        let uid = decodedToken.uid;
-
-        db.collection('properties').doc(propertyId).get().then(snap => {
-          if (snap.exists) {
-            const property = snap.data()
-
-
-            db.collection('properties').doc(propertyId).collection('users').get().then(users => {
-              let usersArray = []
-              users.forEach(user => {
-                usersArray.push(user.id)
-              })
-              //console.log(usersArray)
-              if (usersArray.indexOf(uid) > -1) {
-                log.info('user authorized')
-                let response = property
-                db.collection('properties').doc(propertyId).collection('logs').get().then(logs => {
-                  let allLogs = []
-                  let upCounter = 0
-                  let downCounter = 0
-                  let responseTimeTotal = 0
-                  let chartData = []
-                  logs.forEach(logSnap => {
-                    const log = logSnap.data()
-                    if (log.ok) {
-                      upCounter++
-                    } else {
-                      downCounter++
-                    }
-                    if (log.responseTime) {
-                      responseTimeTotal += log.responseTime
-                      allLogs.push(log)
-                    }
-
-                  })
-                  allLogs = allLogs.sort((a, b) => {
-                    //console.log(a.timeStamp, b.timeStamp)
-                    return a.timeStamp - b.timeStamp
-                  })
-                  allLogs.forEach(i => {
-                    chartData.push({
-                      x: i.timeStamp,
-                      y: i.responseTime
-                    })
-                  })
-                  const lastLog = allLogs[allLogs.length - 1]
-                  response.status = lastLog.status
-                  response.chartData = chartData
-                  response.ok = lastLog.ok
-                  response.lastPing = lastLog.timeStamp
-                  response.lastResponseTime = lastLog.responseTime
-                  response.averageResponseTime = Math.round(responseTimeTotal / allLogs.length)
-                  response.upTime = Math.round(upCounter / (upCounter + downCounter) * 100)
-                  res.status(200)
-                  res.send(response)
-                  res.end()
-                })
-
-
-              } else {
-                log.info('user not authorized for this property')
-                res.status('400')
-                res.send({error: 'user not authorized for this property'})
-                res.end()
-              }
+  log.info('Got a request to get a users properties', userToken)
+  if (userToken) {
+    admin.auth().verifyIdToken(userToken)
+    .then(function (decodedToken) {
+      const uid = decodedToken.uid;
+      mongo.connect(url, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      }, async (err, client) => {
+        if (err) {
+          console.error(err)
+          return
+        }
+        const db = client.db('status-db')
+        const properties = await db.collection('properties').find({users: uid}).toArray()
+        log.info(`Found ${properties.length} properties for the user: ${uid}`)
+        let response = []
+        properties.forEach(property => {
+          let upCounter = 0
+          let downCounter = 0
+          let responseTimeTotal = 0
+          let chartData = []
+          if (property.logArray.length > 0) {
+            property.logArray = property.logArray.sort((a, b) => {
+              //console.log(a.timeStamp, b.timeStamp)
+              return a.timeStamp - b.timeStamp
             })
+            property.logArray.forEach(log => {
+              if (log.ok) {
+                upCounter++
+              } else {
+                downCounter++
+              }
+              if (log.responseTime) {
+                responseTimeTotal += log.responseTime
+                chartData.push({
+                  x: log.timeStamp,
+                  y: log.responseTime
+                })
+              }
 
+            })
+            const lastLog = property.logArray[property.logArray.length - 1]
+            response.push({
+              fetched: true,
+              name: property.name,
+              id: property._id,
+              url: property.url,
+              status: lastLog.status,
+              chartData: chartData,
+              ok: lastLog.ok,
+              lastPing: lastLog.timeStamp,
+              lastResponseTime: lastLog.responseTime,
+              averageResponseTime: Math.round(responseTimeTotal / property.logArray.length),
+              upTime: Math.round(upCounter / (upCounter + downCounter) * 100)
+            })
           } else {
-            res.status(404)
-            res.send({error: 'property does not exist'})
-            res.end()
-          }
-        })
+            response.push({
+              name: property.name,
+              id: property._id,
+              url: property.url,
+              fetched: false,
+              chartData: false,
+              lastPing: false
 
-      }).catch(function (error) {
-        log.info('user token bad')
-        res.status('400')
-        res.send({error: 'user token invalid'})
+            })
+          }
+
+        })
+        res.status(200)
+        res.send({success: true, result: response})
         res.end()
-        // Handle error
-      });
-    } else {
-      log.info('api key bad')
-      res.status('400')
-      res.send({error: 'api key invalid'})
-      res.end()
-    }
+
+      })
+    })
   } else {
-    log.info('invalid request')
-    res.status(400)
-    res.send({error: 'must include all data'})
+    res.status('400')
+    res.send({error: 'must have user token'})
     res.end()
   }
 
-});
-app.post('/property', function (req, res, next) {
-  const key = req.headers.authorization
+})
+app.post('/user', (req, res, next) => {
+  log.info('Got request to get information on a user')
   const userToken = req.headers.user
+  if (userToken && req.body.email) {
+    admin.auth().verifyIdToken(userToken)
+    .then(function (decodedToken) {
+      let uid = decodedToken.uid;
+      mongo.connect(url, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      }, async (err, client) => {
+        if (err) {
+          console.error(err)
+          return
+        }
+        const db = client.db('status-db')
+        await db.collection('users').updateOne({_id: uid}, {$set: req.body})
+        db.collection('secrets').findOne({_id: 'powerUsers'}, (err, powerUsers) => {
+          let admin = false
+          console.log(powerUsers)
+          if (powerUsers) {
+            if (powerUsers.admin.indexOf(uid) > -1) {
+              admin = true
+            }
+          }
 
-  log.info(key, userToken)
-  if (key, userToken, req.body) {
-    if (key == apiKey) {
-      log.info('api key good')
-      admin.auth().verifyIdToken(userToken)
-      .then(function (decodedToken) {
-        let uid = decodedToken.uid;
+          log.info('updated user, admin:', admin)
+          client.close()
+          res.status(200)
+          res.send({success: true, admin: admin})
+          res.end()
+        })
 
-        db.collection('secrets').doc('powerusers').get().then(i => {
-          if (i.data().admin.indexOf(uid) > -1) {
-            const body = req.body
-            console.log(body.users)
+      })
+    }).catch(function (error) {
+      // Handle error
+      res.status(400)
+      res.send({error: 'bad user token'})
+    });
+  }
+})
+app.post('/property', (req, res, next) => {
+  log.info('got request to create a new property')
+  const userToken = req.headers.user
+  const body = req.body
+  if (userToken && body) {
+    admin.auth().verifyIdToken(userToken)
+    .then(function (decodedToken) {
+      let uid = decodedToken.uid;
+      mongo.connect(url, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      }, async (err, client) => {
+        if (err) {
+          log.error(err)
+          return
+        }
+        const db = client.db('status-db')
+        await db.collection('users').updateOne({_id: uid}, {$set: req.body})
+        db.collection('secrets').findOne({_id: 'powerUsers'}, (err, powerUsers) => {
+
+
+          client.close()
+          if (powerUsers.admin.indexOf(uid) > -1) {
+
+            log.info('parameters for new property', body)
             const users = body.users.split(',')
             let uids = []
             let newAccounts = []
             let newAccountPassword = 'welcome'
-            log.info('handling users')
-            users.forEach(async user => {
-              let snap = await db.collection('users').where('email', '==', user).get()
-              if (snap.empty) {
-                log.info('user does not exist', user)
+            mongo.connect(url, {
+              useNewUrlParser: true,
+              useUnifiedTopology: true
+            }, async (err, client) => {
+              if (err) {
+                console.error(err)
+                return
+              }
+              const db = client.db('status-db')
+              await asyncForEach(users, async user => {
+                let userData = await db.collection('users').findOne({email: user})
+                console.log(userData)
+                if (userData) {
+                  uids.push(userData._id)
+                } else {
+                  newAccounts.push(user)
+                }
+
+              })
+              await asyncForEach(newAccounts, async email => {
                 let userRecord = await admin.auth().createUser({
-                  email: user,
+                  email: email,
                   emailVerified: false,
                   disabled: false,
                   password: newAccountPassword
                 })
-                if (userRecord.uid) {
+                if (userRecord) {
                   log.info('createdUser', userRecord.uid)
                   uids.push(userRecord.uid)
-                  await db.collection('users').doc(userRecord.uid).set({
-                    email: user,
-                    properties: []
-                  })
-                  newAccounts.push(user)
+                  await db.collection('users').insertOne({_id: userRecord.uid, email: email})
                 } else {
                   log.error('user Creation error', userRecord)
                 }
-
-
-              }
-              snap.forEach((i) => {
-                if (i.id) {
-                  console.log('user exists', user)
-                  uids.push(i.id)
-                }
-
+                return 1
               })
               console.log(uids)
-              if (uids.length === users.length) {
-                log.info('creating property')
-
-                db.collection('properties').add({
-                  name: body.name,
-                  url: body.url
-                }).then(ref => {
-                  let id = ref.id
-                  let completed = []
-                  uids.forEach(async uid => {
-                    let snap = await db.collection('users').doc(uid).get()
-                    let currentProps = snap.data().properties
-                    currentProps.push(id)
-                    await db.collection('properties').doc(id).collection('users').doc(uid).set({email: true})
-                    await db.collection('users').doc(uid).update({properties: currentProps})
-                    completed.push(uid)
-                    if (completed.length === uids.length) {
-                      log.info('finished', {
-                        sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword
-                      })
-                      res.status(200)
-                      res.send({sucess: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
-                      res.end()
-                    }
-                  })
-
+              db.collection('properties').insertOne({
+                name: body.name, url: body.url, logArray: [], users: uids
+              }, (err, result) => {
+                log.info('finished', {
+                  success: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword
                 })
-              }
+                client.close()
+                res.status(200)
+                res.send({success: true, newAccounts: newAccounts, newAccountPassword: newAccountPassword})
+                res.end()
+              })
 
 
             })
 
-
           } else {
-            log.info('user not authorized to create properties')
-            res.status('400')
-            res.send({error: 'user not authorized to create properties'})
+            res.status(400)
+            res.send({error: 'user does not have permission to create new properties'})
             res.end()
           }
         })
 
-      }).catch(function (error) {
-        log.info('user token bad')
-        res.status('400')
-        res.send({error: 'user token invalid'})
-        res.end()
-        // Handle error
-      });
-    } else {
-      log.info('api key bad')
-      res.status('400')
-      res.send({error: 'api key invalid'})
+      })
+    }).catch(err => {
+      res.status(400)
+      res.send({error: 'invalid user token'})
       res.end()
-    }
+    })
   } else {
     log.info('invalid request')
     res.status(400)
     res.send({error: 'must include all data'})
     res.end()
   }
-
-});
+})
 
 module.exports = app;
