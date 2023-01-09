@@ -15,7 +15,7 @@
     "cors": "^2.8.5",
     "debug": "~2.6.9",
     "express": "~4.16.1",
-    "firebase-admin": "^8.6.1",
+    "firebase-admin": "^11.4.1",
     "hat": "0.0.3",
     "moment-timezone": "^0.5.27",
     "mongodb": "^3.3.3",
